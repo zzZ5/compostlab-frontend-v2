@@ -6,11 +6,13 @@ import type { APIError } from "@/types/api";
  * - NEXT_PUBLIC_API_BASE 建议类似：http://127.0.0.1:8000/api/v2
  */
 function getApiBase(): string {
-	const base = (process.env.NEXT_PUBLIC_API_BASE || "").trim();
-	if (!base) {
-		// 让错误更显性（否则 axios 会走相对路径，前端代理时非常难排查）
-		throw new Error("NEXT_PUBLIC_API_BASE is not set");
-	}
+	/**
+	 * ✅ 默认同域反代：/api/v2
+	 * - 你的后端 urls.py 已把 v2 API 挂载到 /api/v2/...
+	 * - 因此在绝大多数部署（Nginx/Next 同域反代）下无需额外配置
+	 * - 如果你需要指向其它域（例如本地独立后端），再配置 NEXT_PUBLIC_API_BASE
+	 */
+	const base = (process.env.NEXT_PUBLIC_API_BASE || "").trim() || "/api/v2";
 	return base.replace(/\/+$/, ""); // 去掉末尾 /
 }
 

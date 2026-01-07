@@ -1,11 +1,19 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import dayjs from "dayjs";
 import { useMemo, useState } from "react";
-import { Card, Col, Grid, Input, Row, Space, Spin, Table, Tag, Typography } from "antd";
+import { Button, Card, Col, Grid, Input, Modal, Row, Space, Spin, Switch, Table, Tag, Typography, message } from "antd";
 
 import Page from "@/components/Page";
 import { useRuns } from "@/hooks/useRuns";
+import { useCreateRun } from "@/hooks/useCreateRun";
+import { useUpdateRun } from "@/hooks/useUpdateRun";
+import { useDeleteRun } from "@/hooks/useDeleteRun";
+import RunFormModal from "@/components/RunFormModal";
+import { emptyObjectToUndefined } from "@/lib/kv";
+import { getErrorMessage } from "@/lib/errors";
 
 const { Text } = Typography;
 const { useBreakpoint } = Grid;
@@ -13,10 +21,80 @@ const { useBreakpoint } = Grid;
 export default function RunsPage() {
 	const screens = useBreakpoint();
 	const isMobile = !screens.md;
+	const router = useRouter();
 
 	const [q, setQ] = useState("");
+	// ✅ 管理模式默认开启（更符合“用户可直接维护 Run / Window”的场景）
+	const [manage, setManage] = useState(true);
 	const runsQ = useRuns({ q: q.trim() || "" });
 	const runs = runsQ.data || [];
+	const createRun = useCreateRun();
+	const deleteRun = useDeleteRun();
+	const [editing, setEditing] = useState<any | null>(null);
+	const updateRun = useUpdateRun(editing?.run_id || 0);
+	const [modalOpen, setModalOpen] = useState(false);
+
+	function openCreate() {
+		setEditing(null);
+		setModalOpen(true);
+	}
+
+	function openEdit(r: any) {
+		setEditing(r);
+		setModalOpen(true);
+	}
+
+	async function submitRun(payload: {
+		name: string;
+		start_at: string | null;
+		end_at: string | null;
+		note: string;
+		recipe?: Record<string, any>;
+		settings?: Record<string, any>;
+	}) {
+		try {
+			const body: any = {
+				name: String(payload.name || "").trim(),
+				note: String(payload.note || ""),
+				start_at: payload.start_at,
+				end_at: payload.end_at,
+			};
+			const recipe = emptyObjectToUndefined(payload.recipe || {});
+			const settings = emptyObjectToUndefined(payload.settings || {});
+			if (recipe !== undefined) body.recipe = recipe;
+			if (settings !== undefined) body.settings = settings;
+
+			if (editing) {
+				await updateRun.mutateAsync(body);
+				message.success("已更新 run");
+			} else {
+				const created: any = await createRun.mutateAsync(body);
+				message.success("已创建 run");
+				if (created?.run_id) router.push(`/runs/${created.run_id}`);
+			}
+			setModalOpen(false);
+		} catch (err: any) {
+			message.error(getErrorMessage(err));
+		}
+	}
+
+	function confirmDelete(r: any) {
+		Modal.confirm({
+			title: "删除 run",
+			content: `确定删除 ${r.name || `Run #${r.run_id}`} 吗？该操作不可撤销。`,
+			okText: "删除",
+			okType: "danger",
+			cancelText: "取消",
+			onOk: async () => {
+				try {
+					await deleteRun.mutateAsync({ run_id: r.run_id });
+					message.success("已删除 run");
+				} catch (err: any) {
+					message.error(getErrorMessage(err));
+				}
+			},
+		});
+	}
 
 	const data = useMemo(() => runs, [runs]);
 
@@ -61,6 +139,21 @@ export default function RunsPage() {
 		},
 	];
 
+	const columnsWithActions = useMemo(() => {
+		if (!manage) return columns as any[];
+		return [...(columns as any[]), {
+			title: "操作",
+			key: "actions",
+			width: 180,
+			render: (_: any, r: any) => (
+				<Space>
+					<Button size="small" onClick={() => openEdit(r)}>编辑</Button>
+					<Button size="small" danger onClick={() => confirmDelete(r)}>删除</Button>
+				</Space>
+			),
+		}];
+	}, [manage, columns]);
+
 	if (runsQ.isLoading) {
 		return (
 			<div style={{ padding: 48 }}>
@@ -73,51 +166,119 @@ export default function RunsPage() {
 		<Page
 			title="Runs"
 			extra={
-				<Input.Search
-					placeholder="搜索 run（name）"
-					allowClear
-					style={{ width: isMobile ? 220 : 320 }}
-					value={q}
-					onChange={(e) => setQ(e.target.value)}
-				/>
+				<Space wrap>
+					<Input.Search
+						placeholder="搜索 run（name）"
+						allowClear
+						style={{ width: isMobile ? 220 : 320 }}
+						value={q}
+						onChange={(e) => setQ(e.target.value)}
+					/>
+					<Space size={6}>
+						<Text type="secondary">管理模式</Text>
+						<Switch checked={manage} onChange={setManage} />
+					</Space>
+					{manage && (
+						<Button type="primary" onClick={openCreate}>
+							新建 Run
+						</Button>
+					)}
+				</Space>
 			}
 		>
 			{isMobile ? (
 				<Row gutter={[12, 12]}>
 					{data.map((r: any) => (
 						<Col xs={24} key={r.run_id}>
-							<Link href={`/runs/${r.run_id}`} style={{ display: "block" }}>
-								<Card hoverable>
-									<div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-										<div style={{ minWidth: 0 }}>
-											<div style={{ fontSize: 16, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-												{r.name || `Run #${r.run_id}`}
-											</div>
-											<Space size={6} wrap style={{ marginTop: 8 }}>
-												<Tag color="blue">ID {r.run_id}</Tag>
-											</Space>
+							<Card
+								hoverable
+								onClick={() => router.push(`/runs/${r.run_id}`)}
+							>
+								<div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+									<div style={{ minWidth: 0 }}>
+										<div
+											style={{
+												fontSize: 16,
+												fontWeight: 700,
+												overflow: "hidden",
+												textOverflow: "ellipsis",
+												whiteSpace: "nowrap",
+											}}
+										>
+											{r.name || `Run #${r.run_id}`}
 										</div>
-										<div style={{ textAlign: "right" }}>
-											<div style={{ fontSize: 12, color: "rgba(0,0,0,.45)" }}>Updated</div>
-											<div style={{ fontSize: 12 }}>{r.updated_at || "-"}</div>
-										</div>
+										<Space size={6} wrap style={{ marginTop: 8 }}>
+											<Tag color="blue">ID {r.run_id}</Tag>
+										</Space>
 									</div>
 
-									<div style={{ marginTop: 10, display: "grid", gap: 6 }}>
-										<Text style={{ fontSize: 12 }}>start: {r.start_at || "-"}</Text>
-										<Text style={{ fontSize: 12 }}>end: {r.end_at || "-"}</Text>
-										<Text type="secondary" style={{ fontSize: 12 }}>
-											{r.note || "-"}
-										</Text>
+									<div style={{ textAlign: "right" }}>
+										<div style={{ fontSize: 12, color: "rgba(0,0,0,.45)" }}>Updated</div>
+										<div style={{ fontSize: 12 }}>{r.updated_at || "-"}</div>
 									</div>
-								</Card>
-							</Link>
+								</div>
+
+								<div style={{ marginTop: 10, display: "grid", gap: 6 }}>
+									<Text style={{ fontSize: 12 }}>start: {r.start_at || "-"}</Text>
+									<Text style={{ fontSize: 12 }}>end: {r.end_at || "-"}</Text>
+									<Text type="secondary" style={{ fontSize: 12 }}>
+										{r.note || "-"}
+									</Text>
+								</div>
+
+								{manage && (
+									<div style={{ marginTop: 12 }}>
+										<Space>
+											<Button
+												size="small"
+												onClick={(e) => {
+													e.stopPropagation();
+													openEdit(r);
+												}}
+											>
+												编辑
+											</Button>
+											<Button
+												size="small"
+												danger
+												onClick={(e) => {
+													e.stopPropagation();
+													confirmDelete(r);
+												}}
+											>
+												删除
+											</Button>
+										</Space>
+									</div>
+								)}
+							</Card>
 						</Col>
 					))}
 				</Row>
 			) : (
-				<Table rowKey="run_id" columns={columns as any} dataSource={data as any} pagination={{ pageSize: 10 }} />
+				<Table rowKey="run_id" columns={columnsWithActions as any} dataSource={data as any} pagination={{ pageSize: 10 }} />
 			)}
+
+			<RunFormModal
+				open={modalOpen}
+				title={editing ? "编辑 Run" : "新建 Run"}
+				okText={editing ? "保存" : "创建"}
+				confirmLoading={createRun.isPending || updateRun.isPending}
+				initialValues={
+					editing
+						? {
+							name: editing.name || "",
+							start_at: editing.start_at ? dayjs(editing.start_at) : null,
+							end_at: editing.end_at ? dayjs(editing.end_at) : null,
+							note: editing.note || "",
+							recipe: editing.recipe || {},
+							settings: editing.settings || {},
+						}
+						: { name: "", start_at: dayjs(), end_at: null, note: "", recipe: {}, settings: {} }
+				}
+				onCancel={() => setModalOpen(false)}
+				onSubmit={submitRun}
+			/>
 		</Page>
 	);
 }

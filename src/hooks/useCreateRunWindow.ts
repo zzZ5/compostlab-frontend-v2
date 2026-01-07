@@ -8,6 +8,10 @@ export function useCreateRunWindow(runId: number) {
 			device_id: number;
 			group?: string;
 			treatment?: string;
+			follow_run?: boolean;
+			note?: string;
+			settings?: any;
+			meta?: any;
 			start_at?: string | null;
 			end_at?: string | null;
 		}) => {

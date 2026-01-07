@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
 	Button,
@@ -8,18 +9,28 @@ import {
 	Col,
 	Grid,
 	Input,
+	Modal,
 	Row,
 	Select,
 	Space,
 	Spin,
+	Switch,
 	Table,
 	Tag,
 	Typography,
 	Tooltip,
+	message,
 } from "antd";
 
 import Page from "@/components/Page";
+import DeviceFormModal, { type DeviceFormValues } from "@/components/DeviceFormModal";
 import { useDevicesTree } from "@/hooks/useDevicesTree";
+import { useCreateDevice } from "@/hooks/useCreateDevice";
+import { useUpdateDevice } from "@/hooks/useUpdateDevice";
+import { useDeleteDevice } from "@/hooks/useDeleteDevice";
+
+import { emptyObjectToUndefined } from "@/lib/kv";
+import { getErrorMessage } from "@/lib/errors";
 
 import { getOnlineState, onlineTag } from "@/lib/status";
 import { evalO2, evalTemp, sevToColor } from "@/lib/alerts";
@@ -44,6 +55,7 @@ function overallSev(tempSev: any, o2Sev: any): "danger" | "warn" | "ok" | "none"
 export default function DevicesPage() {
 	const screens = useBreakpoint();
 	const isMobile = !screens.md;
+	const router = useRouter();
 
 	const devicesQ = useDevicesTree(true);
 	const devices = devicesQ.data || [];
@@ -51,6 +63,68 @@ export default function DevicesPage() {
 	const [q, setQ] = useState("");
 	const [statusFilter, setStatusFilter] = useState<string>("all");
 	const [alertFilter, setAlertFilter] = useState<string>("all");
+	const [manage, setManage] = useState(true);
+
+	const createDevice = useCreateDevice();
+	const [editing, setEditing] = useState<any | null>(null);
+	const updateDevice = useUpdateDevice(editing?.device_id || 0);
+	const deleteDevice = useDeleteDevice();
+
+	const [modalOpen, setModalOpen] = useState(false);
+
+	function openCreate() {
+		setEditing(null);
+		setModalOpen(true);
+	}
+
+	function openEdit(d: any) {
+		setEditing(d);
+		setModalOpen(true);
+	}
+
+	async function submitDevice(values: DeviceFormValues) {
+		try {
+			const body: any = {
+				code: String(values.code || "").trim(),
+				name: String(values.name || "").trim(),
+				post_topic: (values.post_topic || "").trim() || null,
+				response_topic: (values.response_topic || "").trim() || null,
+				note: (values.note || "").trim(),
+				is_active: !!values.is_active,
+			};
+			const meta = emptyObjectToUndefined(values.meta);
+			if (meta !== undefined) body.meta = meta;
+
+			if (editing) {
+				await updateDevice.mutateAsync(body);
+				message.success("设备已更新");
+			} else {
+				await createDevice.mutateAsync(body);
+				message.success("设备已创建");
+			}
+			setModalOpen(false);
+		} catch (e: any) {
+			message.error(getErrorMessage(e, editing ? "更新失败" : "创建失败"));
+		}
+	}
+
+	function confirmDelete(d: any) {
+		Modal.confirm({
+			title: "确认删除设备？",
+			content: `将删除设备：${d?.name || d?.code || d?.device_id}（同时可能影响关联数据）`,
+			okText: "删除",
+			okButtonProps: { danger: true },
+			cancelText: "取消",
+			onOk: async () => {
+				try {
+					await deleteDevice.mutateAsync({ device_id: d.device_id });
+					message.success("设备已删除");
+				} catch (e) {
+					message.error(getErrorMessage(e, "删除失败"));
+				}
+			},
+		});
+	}
 
 	const filtered = useMemo(() => {
 		const qq = q.trim().toLowerCase();
@@ -76,7 +150,7 @@ export default function DevicesPage() {
 	}, [devices, q, statusFilter, alertFilter]);
 
 	const columns = useMemo(() => {
-		return [
+		const cols: any[] = [
 			{
 				title: "Device",
 				key: "device",
@@ -195,7 +269,27 @@ export default function DevicesPage() {
 				sorter: (a: any, b: any) => String(a.last_seen_at || "").localeCompare(String(b.last_seen_at || "")),
 			},
 		];
-	}, []);
+
+		if (manage) {
+			cols.push({
+				title: "操作",
+				key: "actions",
+				width: 180,
+				render: (_: any, d: any) => (
+					<Space>
+						<Button size="small" onClick={() => openEdit(d)}>
+							编辑
+						</Button>
+						<Button size="small" danger onClick={() => confirmDelete(d)}>
+							删除
+						</Button>
+					</Space>
+				),
+			});
+		}
+
+		return cols;
+	}, [manage]);
 
 	if (devicesQ.isLoading) {
 		return (
@@ -241,6 +335,15 @@ export default function DevicesPage() {
 							{ value: "none", label: "No Data" },
 						]}
 					/>
+					<Space size={6}>
+						<Text type="secondary">管理模式</Text>
+						<Switch checked={manage} onChange={setManage} />
+					</Space>
+					{manage && (
+						<Button type="primary" onClick={openCreate}>
+							新建设备
+						</Button>
+					)}
 				</Space>
 			}
 		>
@@ -266,45 +369,83 @@ export default function DevicesPage() {
 
 						return (
 							<Col xs={24} key={d.device_id}>
-								<Link href={`/devices/${d.device_id}`} style={{ display: "block" }}>
-									<Card hoverable>
-										<div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-											<div style={{ minWidth: 0 }}>
-												<div style={{ fontSize: 16, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-													{d.name || d.code}
+								<Card hoverable onClick={() => router.push(`/devices/${d.device_id}`)}>
+									<div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+										<div style={{ minWidth: 0 }}>
+											<div
+												style={{
+													fontSize: 16,
+													fontWeight: 700,
+													overflow: "hidden",
+													textOverflow: "ellipsis",
+													whiteSpace: "nowrap",
+												}}
+											>
+												{d.name || d.code}
+											</div>
+
+											<Space size={6} wrap style={{ marginTop: 8 }}>
+												<Tag color={st.color}>{st.text}</Tag>
+												<Tag color="blue">{d.code}</Tag>
+												<Tag color={ovTagColor}>{ovText}</Tag>
+											</Space>
+
+											{manage && (
+												<div style={{ marginTop: 12 }}>
+													<Space>
+														<Button
+															size="small"
+															onClick={(e) => {
+																e.stopPropagation();
+																openEdit(d);
+															}}
+														>
+															编辑
+														</Button>
+														<Button
+															size="small"
+															danger
+															onClick={(e) => {
+																e.stopPropagation();
+																confirmDelete(d);
+															}}
+														>
+															删除
+														</Button>
+													</Space>
 												</div>
-												<Space size={6} wrap style={{ marginTop: 8 }}>
-													<Tag color={st.color}>{st.text}</Tag>
-													<Tag color="blue">{d.code}</Tag>
-													<Tag color={ovTagColor}>{ovText}</Tag>
-												</Space>
-											</div>
-											<div style={{ textAlign: "right" }}>
-												<div style={{ fontSize: 12, color: "rgba(0,0,0,.45)" }}>Last seen</div>
-												<div style={{ fontSize: 12 }}>{d.last_seen_at || "-"}</div>
-											</div>
+											)}
 										</div>
 
-										<div style={{ marginTop: 12, display: "grid", gap: 8 }}>
-											<div style={{ display: "flex", justifyContent: "space-between" }}>
-												<Text type="secondary">{tempCh?.display_name || "温度"}</Text>
-												<Tag color={sevToColor(tA.sev)}>{tempCh?.latest ? `${tempCh.latest.value} ${tempCh.unit || ""}` : "-"}</Tag>
-											</div>
-											<div style={{ display: "flex", justifyContent: "space-between" }}>
-												<Text type="secondary">{o2Ch?.display_name || "氧气"}</Text>
-												<Tag color={sevToColor(oA.sev)}>{o2Ch?.latest ? `${o2Ch.latest.value} ${o2Ch.unit || ""}` : "-"}</Tag>
-											</div>
-											<div style={{ display: "flex", justifyContent: "space-between" }}>
-												<Text type="secondary">{co2Ch?.display_name || "二氧化碳"}</Text>
-												<Tag>{co2Ch?.latest ? `${co2Ch.latest.value} ${co2Ch.unit || ""}` : "-"}</Tag>
-											</div>
-											<div style={{ display: "flex", justifyContent: "space-between" }}>
-												<Text type="secondary">{moisCh?.display_name || "含水率"}</Text>
-												<Tag>{moisCh?.latest ? `${moisCh.latest.value} ${moisCh.unit || ""}` : "-"}</Tag>
-											</div>
+										<div style={{ textAlign: "right" }}>
+											<div style={{ fontSize: 12, color: "rgba(0,0,0,.45)" }}>Last seen</div>
+											<div style={{ fontSize: 12 }}>{d.last_seen_at || "-"}</div>
 										</div>
-									</Card>
-								</Link>
+									</div>
+
+									<div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+										<div style={{ display: "flex", justifyContent: "space-between" }}>
+											<Text type="secondary">{tempCh?.display_name || "温度"}</Text>
+											<Tag color={sevToColor(tA.sev)}>
+												{tempCh?.latest ? `${tempCh.latest.value} ${tempCh.unit || ""}` : "-"}
+											</Tag>
+										</div>
+										<div style={{ display: "flex", justifyContent: "space-between" }}>
+											<Text type="secondary">{o2Ch?.display_name || "氧气"}</Text>
+											<Tag color={sevToColor(oA.sev)}>
+												{o2Ch?.latest ? `${o2Ch.latest.value} ${o2Ch.unit || ""}` : "-"}
+											</Tag>
+										</div>
+										<div style={{ display: "flex", justifyContent: "space-between" }}>
+											<Text type="secondary">{co2Ch?.display_name || "二氧化碳"}</Text>
+											<Tag>{co2Ch?.latest ? `${co2Ch.latest.value} ${co2Ch.unit || ""}` : "-"}</Tag>
+										</div>
+										<div style={{ display: "flex", justifyContent: "space-between" }}>
+											<Text type="secondary">{moisCh?.display_name || "含水率"}</Text>
+											<Tag>{moisCh?.latest ? `${moisCh.latest.value} ${moisCh.unit || ""}` : "-"}</Tag>
+										</div>
+									</div>
+								</Card>
 							</Col>
 						);
 					})}
@@ -318,6 +459,28 @@ export default function DevicesPage() {
 					pagination={{ pageSize: 10 }}
 				/>
 			)}
+
+			<DeviceFormModal
+				open={modalOpen}
+				title={editing ? "编辑设备" : "新建设备"}
+				okText={editing ? "保存" : "创建"}
+				initialValues={
+					editing
+						? {
+							code: editing.code,
+							name: editing.name,
+							post_topic: editing.post_topic || "",
+							response_topic: editing.response_topic || "",
+							note: editing.note || "",
+							is_active: editing.is_active !== false,
+							meta: editing.meta || {},
+						}
+						: { is_active: true, meta: {} }
+				}
+				confirmLoading={createDevice.isPending || updateDevice.isPending}
+				onCancel={() => setModalOpen(false)}
+				onSubmit={submitDevice}
+			/>
 		</Page>
 	);
 }

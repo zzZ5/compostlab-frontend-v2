@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import ReactECharts from "echarts-for-react";
 import {
 	Button,
@@ -10,10 +10,15 @@ import {
 	DatePicker,
 	Divider,
 	Grid,
+	Form,
+	Input,
+	Modal,
 	message,
 	Row,
 	Select,
 	Space,
+	Switch,
+	Collapse,
 	Spin,
 	Tabs,
 	Tag,
@@ -22,14 +27,21 @@ import {
 import dayjs from "dayjs";
 
 import Page from "@/components/Page";
+import KeyValueEditor from "@/components/KeyValueEditor";
 
 import { useDevicesTree } from "@/hooks/useDevicesTree";
 import { useRunDetail } from "@/hooks/useRunDetail";
 import { useRunWindows } from "@/hooks/useRunWindows";
+import { useCreateRunWindow } from "@/hooks/useCreateRunWindow";
+import { useUpdateRunWindow } from "@/hooks/useUpdateRunWindow";
+import { useDeleteRunWindow } from "@/hooks/useDeleteRunWindow";
+import { useUpdateRun } from "@/hooks/useUpdateRun";
+import { useDeleteRun } from "@/hooks/useDeleteRun";
 import { useRunTelemetry } from "@/hooks/useRunTelemetry";
 
 import { api, buildQuery, downloadBlob, getErrorMessage } from "@/lib/api";
 import { normalizeMetric, MetricKey, metricLabel } from "@/lib/metrics";
+import { emptyObjectToUndefined } from "@/lib/kv";
 
 import type { RunWindow } from "@/types/api";
 
@@ -41,6 +53,7 @@ type Opt = { value: string; label: string };
 export default function RunDetailPage() {
 	const params = useParams<{ id: string }>();
 	const runId = Number(params.id);
+	const router = useRouter();
 
 	const screens = useBreakpoint();
 	const isMobile = !screens.md;
@@ -51,9 +64,164 @@ export default function RunDetailPage() {
 	// filters
 	const [group, setGroup] = useState<string | null>(null);
 	const [treatment, setTreatment] = useState<string | null>(null);
+	// ✅ 管理模式默认开启（Run / Window 面向用户可编辑）
+	const [manage, setManage] = useState(true);
 
 	const windowsQ = useRunWindows(runId, { group, treatment });
 	const windows: RunWindow[] = windowsQ.data || [];
+	// 用于下拉选项（不被当前筛选限制）
+	const windowsAllQ = useRunWindows(runId, { group: null, treatment: null });
+	const windowsAll: RunWindow[] = windowsAllQ.data || [];
+
+	const createWindow = useCreateRunWindow(runId);
+	const updateWindow = useUpdateRunWindow(runId);
+	const deleteWindow = useDeleteRunWindow(runId);
+	const updateRun = useUpdateRun(runId);
+	const deleteRun = useDeleteRun();
+
+	const [runModalOpen, setRunModalOpen] = useState(false);
+	const [windowModalOpen, setWindowModalOpen] = useState(false);
+	const [editingWindow, setEditingWindow] = useState<RunWindow | null>(null);
+	const [runForm] = Form.useForm();
+	const [windowForm] = Form.useForm();
+
+	const fmt = (d: any) => (d ? dayjs(d).format("YYYY-MM-DD HH:mm:ss") : null);
+
+	function openRunEdit() {
+		const r = runQ.data;
+		if (!r) return;
+		runForm.resetFields();
+		runForm.setFieldsValue({
+			name: r.name,
+			note: r.note || "",
+			start_at: r.start_at ? dayjs(r.start_at) : null,
+			end_at: r.end_at ? dayjs(r.end_at) : null,
+			recipe: r.recipe || {},
+			settings: r.settings || {},
+		});
+		setRunModalOpen(true);
+	}
+
+	async function submitRun() {
+		try {
+			const v = await runForm.validateFields();
+			const body: any = {
+				name: (v.name || "").trim(),
+				note: (v.note || "").trim(),
+				start_at: fmt(v.start_at),
+				end_at: fmt(v.end_at),
+			};
+			const recipe = emptyObjectToUndefined(v.recipe);
+			const settings = emptyObjectToUndefined(v.settings);
+			if (recipe !== undefined) body.recipe = recipe;
+			if (settings !== undefined) body.settings = settings;
+			await updateRun.mutateAsync(body);
+			message.success("Run 已更新");
+			setRunModalOpen(false);
+		} catch (err) {
+			// 表单校验失败时，antd 会 throw 一个对象，不提示即可
+			if ((err as any)?.errorFields) return;
+			message.error(getErrorMessage(err, "更新失败"));
+		}
+	}
+
+	function confirmDeleteRun() {
+		Modal.confirm({
+			title: "删除 Run",
+			content: "删除后不可恢复。确认删除该 Run 吗？",
+			okType: "danger",
+			async onOk() {
+				try {
+					await deleteRun.mutateAsync({ run_id: runId });
+					message.success("Run 已删除");
+					router.push("/runs");
+				} catch (err) {
+					message.error(getErrorMessage(err, "删除失败"));
+				}
+			},
+		});
+	}
+
+	function openWindowCreate() {
+		setEditingWindow(null);
+		windowForm.resetFields();
+		windowForm.setFieldsValue({
+			device_id: undefined,
+			group: "",
+			treatment: "",
+			follow_run: true,
+			note: "",
+			start_at: null,
+			end_at: null,
+			settings: {},
+			meta: {},
+		});
+		setWindowModalOpen(true);
+	}
+
+	function openWindowEdit(w: RunWindow) {
+		setEditingWindow(w);
+		windowForm.resetFields();
+		windowForm.setFieldsValue({
+			device_id: w.device_id,
+			group: w.group || "",
+			treatment: w.treatment || "",
+			follow_run: w.follow_run !== false,
+			note: w.note || "",
+			start_at: w.start_at ? dayjs(w.start_at) : null,
+			end_at: w.end_at ? dayjs(w.end_at) : null,
+			settings: w.settings || {},
+			meta: w.meta || {},
+		});
+		setWindowModalOpen(true);
+	}
+
+	async function submitWindow() {
+		try {
+			const v = await windowForm.validateFields();
+			const body: any = {
+				device_id: Number(v.device_id),
+				group: (v.group || "").trim() || undefined,
+				treatment: (v.treatment || "").trim() || undefined,
+				follow_run: !!v.follow_run,
+				note: (v.note || "").trim(),
+				start_at: fmt(v.start_at),
+				end_at: fmt(v.end_at),
+			};
+			const settings = emptyObjectToUndefined(v.settings);
+			const meta = emptyObjectToUndefined(v.meta);
+			if (settings !== undefined) body.settings = settings;
+			if (meta !== undefined) body.meta = meta;
+
+			if (editingWindow) {
+				await updateWindow.mutateAsync({ windowId: editingWindow.window_id, body });
+				message.success("Window 已更新");
+			} else {
+				await createWindow.mutateAsync(body);
+				message.success("Window 已创建");
+			}
+			setWindowModalOpen(false);
+		} catch (err) {
+			if ((err as any)?.errorFields) return;
+			message.error(getErrorMessage(err, "保存失败"));
+		}
+	}
+
+	function confirmDeleteWindow(w: RunWindow) {
+		Modal.confirm({
+			title: "删除 Window",
+			content: `确认删除该 Window 吗？（device_id=${w.device_id}）`,
+			okType: "danger",
+			async onOk() {
+				try {
+					await deleteWindow.mutateAsync(w.window_id);
+					message.success("Window 已删除");
+				} catch (err) {
+					message.error(getErrorMessage(err, "删除失败"));
+				}
+			},
+		});
+	}
 
 	// metric & time
 	const [activeMetric, setActiveMetric] = useState<MetricKey>("temperature");
@@ -86,6 +254,15 @@ export default function RunDetailPage() {
 		return m;
 	}, [devices]);
 
+	const deviceOptions = useMemo(() => {
+		return devices
+			.map((d: any) => ({
+				value: d.device_id,
+				label: `${d.code}${d.name ? ` · ${d.name}` : ""}`,
+			}))
+			.sort((a, b) => String(a.label).localeCompare(String(b.label)));
+	}, [devices]);
+
 	const windowDevices = useMemo(() => {
 		return windowDeviceIds.map((id) => deviceMap.get(id)).filter(Boolean);
 	}, [windowDeviceIds, deviceMap]);
@@ -113,22 +290,22 @@ export default function RunDetailPage() {
 
 	const points = telemetryQ.data?.data || [];
 
-	// options from windows
+	// options from windows (不受当前筛选限制)
 	const groupOptions: Opt[] = useMemo(() => {
 		const s = new Set<string>();
-		for (const w of windows) if (w.group) s.add(w.group);
+		for (const w of windowsAll) if (w.group) s.add(w.group);
 		return Array.from(s)
 			.sort()
 			.map((x) => ({ value: x, label: x }));
-	}, [windows]);
+	}, [windowsAll]);
 
 	const treatmentOptions: Opt[] = useMemo(() => {
 		const s = new Set<string>();
-		for (const w of windows) if (w.treatment) s.add(w.treatment);
+		for (const w of windowsAll) if (w.treatment) s.add(w.treatment);
 		return Array.from(s)
 			.sort()
 			.map((x) => ({ value: x, label: x }));
-	}, [windows]);
+	}, [windowsAll]);
 
 	const chartOption = useMemo(() => {
 		// group by code
@@ -239,6 +416,23 @@ export default function RunDetailPage() {
 			extra={
 				<Space wrap>
 					<Tag color="blue">ID {runId}</Tag>
+					<Space size={6}>
+						<Text type="secondary">管理</Text>
+						<Switch checked={manage} onChange={setManage} />
+					</Space>
+
+					{manage && (
+						<>
+							<Button onClick={openRunEdit}>编辑 Run</Button>
+							<Button danger onClick={confirmDeleteRun}>
+								删除 Run
+							</Button>
+							<Button type="primary" onClick={openWindowCreate}>
+								新建 Window
+							</Button>
+						</>
+					)}
+
 					<Button onClick={exportRunRaw}>导出 Raw</Button>
 					<Button onClick={exportRunWide}>导出 Wide</Button>
 				</Space>
@@ -323,33 +517,206 @@ export default function RunDetailPage() {
 				</Col>
 
 				<Col xs={24} md={8}>
-					<Card title="Windows">
+					<Card
+						title="Windows"
+						extra={
+							manage ? (
+								<Button size="small" type="primary" onClick={openWindowCreate}>
+									新建
+								</Button>
+							) : null
+						}
+					>
 						<Space orientation="vertical" style={{ width: "100%" }} size={8}>
 							<Text type="secondary">命中的窗口用于确定参与设备与有效时间段。</Text>
 							<Divider style={{ margin: "8px 0" }} />
 
 							<div style={{ maxHeight: 520, overflow: "auto" }}>
 								<Space orientation="vertical" style={{ width: "100%" }} size={8}>
-									{windows.map((w) => (
-										<Card key={w.window_id} size="small">
-											<Space orientation="vertical" size={2} style={{ width: "100%" }}>
-												<Space wrap>
-													<Tag>window {w.window_id}</Tag>
-													<Tag color="blue">device {w.device_id}</Tag>
+									{windows.map((w) => {
+										const dev = deviceMap.get(w.device_id);
+										return (
+											<Card
+												key={w.window_id}
+												size="small"
+												extra={
+													manage ? (
+														<Space size={6}>
+															<Button size="small" onClick={() => openWindowEdit(w)}>
+																编辑
+															</Button>
+															<Button size="small" danger onClick={() => confirmDeleteWindow(w)}>
+																删除
+															</Button>
+														</Space>
+													) : null
+												}
+											>
+												<Space orientation="vertical" size={2} style={{ width: "100%" }}>
+													<Space wrap>
+														<Tag>window {w.window_id}</Tag>
+														<Tag color="blue">device {w.device_id}</Tag>
+														{dev?.code && <Tag color="geekblue">{dev.code}</Tag>}
+													</Space>
+													<Text style={{ fontSize: 12 }}>group: {w.group || "-"}</Text>
+													<Text style={{ fontSize: 12 }}>treatment: {w.treatment || "-"}</Text>
+													<Text style={{ fontSize: 12 }}>start: {w.start_at || "-"}</Text>
+													<Text style={{ fontSize: 12 }}>end: {w.end_at || "-"}</Text>
 												</Space>
-												<Text style={{ fontSize: 12 }}>group: {w.group || "-"}</Text>
-												<Text style={{ fontSize: 12 }}>treatment: {w.treatment || "-"}</Text>
-												<Text style={{ fontSize: 12 }}>start: {w.start_at || "-"}</Text>
-												<Text style={{ fontSize: 12 }}>end: {w.end_at || "-"}</Text>
-											</Space>
-										</Card>
-									))}
+											</Card>
+										);
+									})}
 								</Space>
 							</div>
 						</Space>
 					</Card>
 				</Col>
 			</Row>
+
+			{/* ===== Run 编辑 ===== */}
+			<Modal
+				open={runModalOpen}
+				title="编辑 Run"
+				onCancel={() => setRunModalOpen(false)}
+				onOk={submitRun}
+				okText="保存"
+				destroyOnHidden
+				confirmLoading={updateRun.isPending}
+			>
+				<Form layout="vertical" form={runForm}>
+					<Form.Item label="名称" name="name" rules={[{ required: true, message: "请输入 run 名称" }]}>
+						<Input placeholder="例如：2026-01-07 CK vs EFH" />
+					</Form.Item>
+					<Row gutter={12}>
+						<Col xs={24} md={12}>
+							<Form.Item label="开始时间" name="start_at">
+								<DatePicker showTime style={{ width: "100%" }} />
+							</Form.Item>
+						</Col>
+						<Col xs={24} md={12}>
+							<Form.Item label="结束时间" name="end_at">
+								<DatePicker showTime style={{ width: "100%" }} />
+							</Form.Item>
+						</Col>
+					</Row>
+					<Form.Item label="备注" name="note">
+						<Input.TextArea autoSize={{ minRows: 2, maxRows: 6 }} placeholder="可选" />
+					</Form.Item>
+
+					<Collapse
+						items={[
+							{
+								key: "recipe",
+								label: "高级：recipe（Key-Value）",
+								children: (
+									<Form.Item name="recipe" noStyle>
+										<KeyValueEditor placeholderKey="key" placeholderValue="value" />
+									</Form.Item>
+								),
+							},
+							{
+								key: "settings",
+								label: "高级：settings（Key-Value）",
+								children: (
+									<Form.Item name="settings" noStyle>
+										<KeyValueEditor placeholderKey="key" placeholderValue="value" />
+									</Form.Item>
+								),
+							},
+						]}
+					/>
+				</Form>
+			</Modal>
+
+			{/* ===== Window 新建 / 编辑 ===== */}
+			<Modal
+				open={windowModalOpen}
+				title={editingWindow ? `编辑 Window #${editingWindow.window_id}` : "新建 Window"}
+				onCancel={() => setWindowModalOpen(false)}
+				onOk={submitWindow}
+				okText={editingWindow ? "保存" : "创建"}
+				destroyOnHidden
+				confirmLoading={createWindow.isPending || updateWindow.isPending}
+			>
+				<Form layout="vertical" form={windowForm}>
+					<Form.Item
+						label="绑定设备"
+						name="device_id"
+						rules={[{ required: true, message: "请选择设备" }]}
+					>
+						<Select
+							showSearch
+							optionFilterProp="label"
+							placeholder="选择 device"
+							options={deviceOptions as any}
+						/>
+					</Form.Item>
+
+					<Row gutter={12}>
+						<Col xs={24} md={12}>
+							<Form.Item label="group" name="group">
+								<Input placeholder="可选" />
+							</Form.Item>
+						</Col>
+						<Col xs={24} md={12}>
+							<Form.Item label="treatment" name="treatment">
+								<Input placeholder="可选" />
+							</Form.Item>
+						</Col>
+					</Row>
+
+					<Form.Item label="跟随 Run 时间范围" name="follow_run" valuePropName="checked">
+						<Switch />
+					</Form.Item>
+
+					<Form.Item shouldUpdate={(p, c) => p.follow_run !== c.follow_run} noStyle>
+						{({ getFieldValue }) => {
+							const fr = !!getFieldValue("follow_run");
+							return (
+								<Row gutter={12}>
+									<Col xs={24} md={12}>
+										<Form.Item label="start_at" name="start_at">
+											<DatePicker showTime style={{ width: "100%" }} disabled={fr} />
+										</Form.Item>
+									</Col>
+									<Col xs={24} md={12}>
+										<Form.Item label="end_at" name="end_at">
+											<DatePicker showTime style={{ width: "100%" }} disabled={fr} />
+										</Form.Item>
+									</Col>
+								</Row>
+							);
+						}}
+					</Form.Item>
+
+					<Form.Item label="备注" name="note">
+						<Input.TextArea autoSize={{ minRows: 2, maxRows: 6 }} placeholder="可选" />
+					</Form.Item>
+
+					<Collapse
+						items={[
+							{
+								key: "settings",
+								label: "高级：settings（Key-Value）",
+								children: (
+									<Form.Item name="settings" noStyle>
+										<KeyValueEditor placeholderKey="key" placeholderValue="value" />
+									</Form.Item>
+								),
+							},
+							{
+								key: "meta",
+								label: "高级：meta（Key-Value）",
+								children: (
+									<Form.Item name="meta" noStyle>
+										<KeyValueEditor placeholderKey="key" placeholderValue="value" />
+									</Form.Item>
+								),
+							},
+						]}
+					/>
+				</Form>
+			</Modal>
 		</Page>
 	);
 }

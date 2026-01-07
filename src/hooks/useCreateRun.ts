@@ -4,7 +4,14 @@ import { api } from "@/lib/api";
 export function useCreateRun() {
 	const qc = useQueryClient();
 	return useMutation({
-		mutationFn: async (body: { name: string; start_at?: string | null; note?: string }) => {
+		mutationFn: async (body: {
+			name: string;
+			start_at?: string | null;
+			end_at?: string | null;
+			note?: string;
+			recipe?: any;
+			settings?: any;
+		}) => {
 			const res = await api.post("/runs", body);
 			return res.data;
 		},
