@@ -7,10 +7,10 @@ import { useMemo, useState } from "react";
 import { Button, Card, Col, Grid, Input, Modal, Row, Space, Spin, Switch, Table, Tag, Typography, message } from "antd";
 
 import Page from "@/components/Page";
-import { useRuns } from "@/hooks/useRuns";
-import { useCreateRun } from "@/hooks/useCreateRun";
-import { useUpdateRun } from "@/hooks/useUpdateRun";
-import { useDeleteRun } from "@/hooks/useDeleteRun";
+import { useRuns } from "@/features/runs/queries";
+import { useCreateRun } from "@/features/runs/mutations";
+import { useUpdateRun } from "@/features/runs/mutations";
+import { useDeleteRun } from "@/features/runs/mutations";
 import RunFormModal from "@/components/RunFormModal";
 import { emptyObjectToUndefined } from "@/lib/kv";
 import { getErrorMessage } from "@/lib/errors";

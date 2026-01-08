@@ -24,10 +24,10 @@ import {
 
 import Page from "@/components/Page";
 import DeviceFormModal, { type DeviceFormValues } from "@/components/DeviceFormModal";
-import { useDevicesTree } from "@/hooks/useDevicesTree";
-import { useCreateDevice } from "@/hooks/useCreateDevice";
-import { useUpdateDevice } from "@/hooks/useUpdateDevice";
-import { useDeleteDevice } from "@/hooks/useDeleteDevice";
+import { useDevicesTree } from "@/features/devices/queries";
+import { useCreateDevice } from "@/features/devices/mutations";
+import { useUpdateDevice } from "@/features/devices/mutations";
+import { useDeleteDevice } from "@/features/devices/mutations";
 
 import { emptyObjectToUndefined } from "@/lib/kv";
 import { getErrorMessage } from "@/lib/errors";

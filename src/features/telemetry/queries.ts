@@ -1,18 +1,20 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, buildQuery } from "@/lib/api";
 import type { DeviceTelemetryResp } from "@/types/api";
+import { deviceKeys } from "@/features/devices/keys";
 
 export function useDeviceTelemetry(args: {
 	deviceId: number;
 	from?: string | null;
 	to?: string | null;
-	channels?: string[] | null; // 注意：这里仍是 code 列表
+	channels?: string[] | null; // code 列表
 	bucket?: string | null;
 }) {
 	const { deviceId, from, to, channels, bucket } = args;
+	const argsKey = [from, to, channels?.join(",") || "", bucket || ""].join("|");
 
 	return useQuery<DeviceTelemetryResp>({
-		queryKey: ["device.telemetry", deviceId, from, to, channels?.join(","), bucket],
+		queryKey: deviceKeys.telemetry(deviceId, argsKey),
 		queryFn: async () => {
 			const qs = buildQuery({
 				from,

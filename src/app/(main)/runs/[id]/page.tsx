@@ -29,15 +29,15 @@ import dayjs from "dayjs";
 import Page from "@/components/Page";
 import KeyValueEditor from "@/components/KeyValueEditor";
 
-import { useDevicesTree } from "@/hooks/useDevicesTree";
-import { useRunDetail } from "@/hooks/useRunDetail";
-import { useRunWindows } from "@/hooks/useRunWindows";
-import { useCreateRunWindow } from "@/hooks/useCreateRunWindow";
-import { useUpdateRunWindow } from "@/hooks/useUpdateRunWindow";
-import { useDeleteRunWindow } from "@/hooks/useDeleteRunWindow";
-import { useUpdateRun } from "@/hooks/useUpdateRun";
-import { useDeleteRun } from "@/hooks/useDeleteRun";
-import { useRunTelemetry } from "@/hooks/useRunTelemetry";
+import { useDevicesTree } from "@/features/devices/queries";
+import { useRunDetail } from "@/features/runs/queries";
+import { useRunWindows } from "@/features/runWindows/queries";
+import { useCreateRunWindow } from "@/features/runWindows/mutations";
+import { useUpdateRunWindow } from "@/features/runWindows/mutations";
+import { useDeleteRunWindow } from "@/features/runWindows/mutations";
+import { useUpdateRun } from "@/features/runs/mutations";
+import { useDeleteRun } from "@/features/runs/mutations";
+import { useRunTelemetry } from "@/features/runs/queries";
 
 import { api, buildQuery, downloadBlob, getErrorMessage } from "@/lib/api";
 import { normalizeMetric, MetricKey, metricLabel } from "@/lib/metrics";

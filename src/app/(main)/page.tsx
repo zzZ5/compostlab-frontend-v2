@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { Card, Col, Grid, Input, Row, Select, Space, Spin, Tag, Tooltip, Typography } from "antd";
 
 import Page from "@/components/Page";
-import { useDevicesTree } from "@/hooks/useDevicesTree";
+import { useDevicesTree } from "@/features/devices/queries";
 
 import { getOnlineState, onlineTag } from "@/lib/status";
 import { evalO2, evalTemp, sevToColor } from "@/lib/alerts";

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import ReactECharts from "echarts-for-react";
 import {
@@ -29,16 +29,16 @@ import dayjs from "dayjs";
 import Page from "@/components/Page";
 import KeyValueEditor from "@/components/KeyValueEditor";
 
-import { useDevicesTree } from "@/hooks/useDevicesTree";
-import { useDeviceTelemetry } from "@/hooks/useDeviceTelemetry";
-import { useDeviceChannels } from "@/hooks/useDeviceChannels";
-import { useCreateChannel } from "@/hooks/useCreateChannel";
-import { useUpdateChannel } from "@/hooks/useUpdateChannel";
-import { useDeleteChannel } from "@/hooks/useDeleteChannel";
-import { useUpdateDevice } from "@/hooks/useUpdateDevice";
-import { useDeleteDevice } from "@/hooks/useDeleteDevice";
-import { useDeviceCommands } from "@/hooks/useDeviceCommands";
-import { useSendDeviceCommand } from "@/hooks/useSendDeviceCommand";
+import { useDevicesTree } from "@/features/devices/queries";
+import { useDeviceTelemetry } from "@/features/telemetry/queries";
+import { useDeviceChannels } from "@/features/channels/queries";
+import { useCreateChannel } from "@/features/channels/mutations";
+import { useUpdateChannel } from "@/features/channels/mutations";
+import { useDeleteChannel } from "@/features/channels/mutations";
+import { useUpdateDevice } from "@/features/devices/mutations";
+import { useDeleteDevice } from "@/features/devices/mutations";
+import { useDeviceCommands } from "@/features/devices/queries";
+import { useSendDeviceCommand } from "@/features/devices/mutations";
 
 import { api, buildQuery, downloadBlob, getErrorMessage } from "@/lib/api";
 import { emptyObjectToUndefined } from "@/lib/kv";
@@ -249,39 +249,55 @@ export default function DeviceDetailPage() {
 	const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
 	const [channelForm] = Form.useForm();
 
+	// ⚠️ 避免 antd 警告：不要在 Form 未挂载时调用 resetFields / setFieldsValue
+	useEffect(() => {
+		if (!channelModalOpen) return;
+		channelForm.resetFields();
+		if (editingChannel) {
+			channelForm.setFieldsValue({
+				code: editingChannel.code,
+				name: editingChannel.name || "",
+				display_name: editingChannel.display_name || "",
+				metric: (editingChannel.metric as any) || "unknown",
+				role: editingChannel.role || "",
+				unit: editingChannel.unit || "",
+				is_active: editingChannel.is_active !== false,
+				meta: editingChannel.meta || {},
+			});
+		} else {
+			channelForm.setFieldsValue({
+				code: "",
+				name: "",
+				display_name: "",
+				metric: activeMetric,
+				role: "",
+				unit: "",
+				is_active: true,
+				meta: {},
+			});
+		}
+	}, [channelModalOpen, editingChannel, activeMetric, channelForm]);
+
+
+
+
+
+
+
+
+
+
 	const createChannel = useCreateChannel(deviceId);
 	const updateChannel = useUpdateChannel(deviceId, editingChannel?.channel_id || 0);
 	const deleteChannel = useDeleteChannel(deviceId);
 
 	function openChannelCreate() {
 		setEditingChannel(null);
-		channelForm.resetFields();
-		channelForm.setFieldsValue({
-			code: "",
-			name: "",
-			display_name: "",
-			metric: activeMetric,
-			role: "",
-			unit: "",
-			is_active: true,
-			meta: {},
-		});
 		setChannelModalOpen(true);
 	}
 
 	function openChannelEdit(ch: Channel) {
 		setEditingChannel(ch);
-		channelForm.resetFields();
-		channelForm.setFieldsValue({
-			code: ch.code,
-			name: ch.name || "",
-			display_name: ch.display_name || "",
-			metric: (ch.metric as any) || "unknown",
-			role: ch.role || "",
-			unit: ch.unit || "",
-			is_active: ch.is_active !== false,
-			meta: ch.meta || {},
-		});
 		setChannelModalOpen(true);
 	}
 

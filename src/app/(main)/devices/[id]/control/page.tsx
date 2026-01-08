@@ -2,8 +2,8 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { Button, Card, Form, InputNumber, Space, Table, Tag, Typography, message } from "antd";
-import { useSendDeviceCommand } from "@/hooks/useSendDeviceCommand";
-import { useDeviceCommands } from "@/hooks/useDeviceCommands";
+import { useSendDeviceCommand } from "@/features/devices/mutations";
+import { useDeviceCommands } from "@/features/devices/queries";
 
 const { Title, Text } = Typography;
 
